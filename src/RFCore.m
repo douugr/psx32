@@ -75,7 +75,8 @@ static const char *rf_option(const char *key) {
         {"pcsx_rearmed_spu_thread", "enabled"},             // som do PS1 em outra thread (o A5X tem 2 núcleos)
         {"pcsx_rearmed_gpu_thread_rendering", "enabled"},   // vídeo do PS1 em outra thread
         {"pcsx_rearmed_neon_enhancement_enable", "disabled"},   // resolução nativa: o A5X não aguenta 2x
-        {"pcsx_rearmed_memcard2", "disabled"},
+        {"pcsx_rearmed_memcard1", "libretro"},   // cartão 1 entregue ao app (.srm); sem isso o core fica sem cartão
+        {"pcsx_rearmed_memcard2", "none"},
     };
     for (size_t i = 0; i < sizeof(opts) / sizeof(opts[0]); i++) {
         if (!strcmp(opts[i][0], key)) return opts[i][1];
