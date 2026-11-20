@@ -12,6 +12,7 @@ Add the Cydia repository **https://douugr.github.io/repo/** (Cydia or Melder →
 
 - Dynamic recompiler (JIT) on jailbroken iOS 8 (see below), with the PS1 video and sound on their own threads to use both A5X cores
 - OpenGL ES 2 video (RGB565, every PS1 resolution up to 640×480), smooth or sharp
+- **CRT TV filter** (game menu → "Image…"): scanlines that widen on bright colors, a phosphor mask, composite-video blending (color bleeds more than brightness, so dithering turns into the smooth gradients and transparencies artists drew for TVs) and an optional gently curved screen that still fills the display. Runs at 60 fps on an iPad 3
 - On-screen controls with the four geometric face buttons, L1/L2/R1/R2, Select and Start
 - **Bluetooth controller** (tested with the 8BitDo Pro 2) via BTstack, with a button setup assistant for every PS1 button, including L2/R2 and L3/R3
 - **DualShock mode** (game menu → "Controller: DualShock") with both analog sticks
