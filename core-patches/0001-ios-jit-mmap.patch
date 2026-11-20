@@ -1,0 +1,58 @@
+diff --git a/libpcsxcore/new_dynarec/new_dynarec.c b/libpcsxcore/new_dynarec/new_dynarec.c
+index fb99df6..4038f8f 100644
+--- a/libpcsxcore/new_dynarec/new_dynarec.c
++++ b/libpcsxcore/new_dynarec/new_dynarec.c
+@@ -143,6 +143,15 @@ struct ndrc_mem
+ };
+ 
+ static struct ndrc_mem *ndrc;
++#if defined(__MACH__) && defined(PSX32_JIT)
++// PSX32 (jailbroken iOS 8): ARM B/BL only reach +-32MB, and on a running app there is often no
++// free 16MB hole that close to the code. So the translation cache is a zero-fill section in its
++// own rwx segment of the app (link with -Wl,-segprot,__JIT,rwx,rwx): always right next to the code,
++// and it takes no space in the executable file.
++__asm__(".globl _psx32_tc\n.zerofill __JIT,__jit,_psx32_tc,0x1001000,14");
++extern char psx32_tc[];
++typedef char psx32_tc_fits[(sizeof(struct ndrc_mem) <= 0x1001000) ? 1 : -1];
++#endif
+ #ifndef BASE_ADDR_DYNAMIC
+ // reserve .bss space with upto 64k page size in mind
+ static char ndrc_bss[((sizeof(*ndrc) + 65535) & ~65535) + 65536];
+@@ -6731,7 +6740,12 @@ void new_dynarec_init(void)
+   #if defined(NO_WRITE_EXEC) || defined(TC_WRITE_OFFSET)
+   prot = PROT_READ | PROT_EXEC;
+   #endif
++  #if defined(__MACH__) && defined(PSX32_JIT)
++  (void)desired_addr; (void)prot; (void)flags;
++  ndrc = (struct ndrc_mem *)psx32_tc;
++  #else
+   ndrc = mmap((void *)desired_addr, sizeof(*ndrc), prot, flags, fd, 0);
++  #endif
+   if (ndrc == MAP_FAILED) {
+     SysPrintf("mmap() failed: %s\n", strerror(errno));
+     abort();
+@@ -6782,6 +6796,8 @@ void new_dynarec_cleanup(void)
+   #elif defined(HAVE_LIBNX)
+   jitClose(&g_jit);
+   ndrc = NULL;
++  #elif defined(__MACH__) && defined(PSX32_JIT)
++  ndrc = NULL;   // part of the app image: nothing to unmap
+   #else
+   if (munmap(ndrc, sizeof(*ndrc)) < 0)
+     SysPrintf("munmap() failed\n");
+diff --git a/libpcsxcore/new_dynarec/new_dynarec_config.h b/libpcsxcore/new_dynarec/new_dynarec_config.h
+index 0781e47..9e852bd 100644
+--- a/libpcsxcore/new_dynarec/new_dynarec_config.h
++++ b/libpcsxcore/new_dynarec/new_dynarec_config.h
+@@ -12,7 +12,10 @@
+ //#define TC_WRITE_OFFSET 1
+ //#define NDRC_CACHE_FLUSH_ALL 1
+ 
+-#if defined(__MACH__) || defined(HAVE_LIBNX)
++#if defined(__MACH__) && defined(PSX32_JIT)
++/* jailbroken iOS 8: an anonymous RWX mmap works, the .bss W^X toggle doesn't */
++#define BASE_ADDR_DYNAMIC 1
++#elif defined(__MACH__) || defined(HAVE_LIBNX)
+ #define NO_WRITE_EXEC 1
+ #endif
+ #if defined(VITA) || defined(HAVE_LIBNX)

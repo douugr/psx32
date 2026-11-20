@@ -1,0 +1,8 @@
+build/
+build-core/
+core/
+vendor/libBTstack*.dylib*
+diag/
+jittest/
+jittest2/
+.DS_Store
