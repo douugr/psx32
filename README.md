@@ -13,6 +13,8 @@ Add the Cydia repository **https://douugr.github.io/repo/** (Cydia or Melder →
 - Dynamic recompiler (JIT) on jailbroken iOS 8 (see below), with the PS1 video and sound on their own threads to use both A5X cores
 - OpenGL ES 2 video (RGB565, every PS1 resolution up to 640×480), smooth or sharp
 - **CRT TV filter** (game menu → "Image…"): scanlines that widen on bright colors, a phosphor mask, composite-video blending (color bleeds more than brightness, so dithering turns into the smooth gradients and transparencies artists drew for TVs) and an optional gently curved screen that still fills the display. Runs at 60 fps on an iPad 3
+- **RetroAchievements:** sign in with your retroachievements.org account (side menu → Achievements) and unlock achievements while you play, with a pop-up and the badge of each one. The Achievements screen lists your games and their unlocks, and the game menu shows the achievements of the game you are playing. Save states keep the achievement progress. For now unlocks count in Casual mode only (Hardcore needs approval from RetroAchievements), and only original, unmodified games are recognized. Discs must be `.cue` + `.bin`, `.iso` or `.m3u` (`.chd`/`.pbp` can't be identified yet); multi-disc games keep their achievements after a disc change
+- **Side menu:** Games, Achievements, Upload and Controller live in a drawer (☰ button or swipe from the left edge)
 - On-screen controls with the four geometric face buttons, L1/L2/R1/R2, Select and Start
 - **Bluetooth controller** (tested with the 8BitDo Pro 2) via BTstack, with a button setup assistant for every PS1 button, including L2/R2 and L3/R3
 - **DualShock mode** (game menu → "Controller: DualShock") with both analog sticks
@@ -52,6 +54,7 @@ The app lives in `/Applications` (outside the sandbox) so it can talk to BTstack
 ## Licenses
 
 - The code in this repository is released under the **MIT License** (see [LICENSE](LICENSE)). The icon is original, made for the project.
+- **rcheevos** (RetroAchievements runtime) is © RetroAchievements, MIT License. It is downloaded at build time (tag pinned in `build.sh`).
 - **PCSX ReARMed** is licensed under the **GNU GPL v2**. It is not included here: it is downloaded at build time (commit pinned in `build.sh`) and patched with the files in `core-patches/`. Because the packaged app links it statically, **the app as a whole is distributed under the GPL v2**; this repository plus that commit is its complete source.
 - The headers in `vendor/btstack` are from BTstack (© BlueKitchen GmbH / Matthias Ringwald) and follow the BTstack license.
 - PlayStation is a trademark of Sony Interactive Entertainment. This project is not affiliated with or endorsed by Sony.

@@ -1,5 +1,6 @@
 #import "RF.h"
 #include "libretro.h"
+#include "rc_consoles.h"
 #import <QuartzCore/QuartzCore.h>
 #include <stdarg.h>
 
@@ -140,6 +141,11 @@ static bool rf_environment(unsigned cmd, void *data) {
             if (av->geometry.aspect_ratio > 0) rf_aspect = av->geometry.aspect_ratio;
             return true;
         }
+        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+            RFAchievementsSetMemoryMap(data);   // RetroAchievements lê a RAM do jogo por este mapa
+            return true;
+        case RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS:
+            return true;
         case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
             // bit 0 = vídeo, bit 1 = áudio; bit 2 = "estados rápidos"
             *(int *)data = (rf_skip_video ? 2 : 3) | (rf_fast_states ? 4 : 0);
@@ -198,7 +204,16 @@ static int16_t rf_input_state(unsigned port, unsigned device, unsigned index, un
 @property (nonatomic, strong) NSMutableData *cardSnapshot;
 @property (nonatomic, assign) BOOL cardDirty;
 @property (nonatomic, strong) dispatch_source_t cardTimer;
+@property (nonatomic, copy) NSString *gamePath;
 @end
+
+uint32_t RFConsoleForPath(NSString *path) {
+    return RC_CONSOLE_PLAYSTATION;
+}
+
+NSArray *RFAchievementsConsoles(void) {
+    return @[ @{ @"id": @(RC_CONSOLE_PLAYSTATION), @"name": @"PlayStation" } ];
+}
 
 @implementation RFCore
 
@@ -285,6 +300,7 @@ static void rf_write_card(NSData *data, NSString *path) {
     [[NSUserDefaults standardUserDefaults] setBool:shared forKey:@"RFSharedCard"];
     [self insertCard];
     retro_reset();
+    [[RFAchievements shared] reset];
 }
 
 // A cada segundo: se o jogo mexeu no cartão e ele parou de mudar, grava (como o console grava na hora)
@@ -437,6 +453,8 @@ static NSArray<NSString *> *rf_referenced_files(NSString *path) {
     __weak RFCore *weakSelf = self;
     dispatch_source_set_event_handler(self.cardTimer, ^{ [weakSelf pollCard]; });
     dispatch_resume(self.cardTimer);
+    self.gamePath = path;
+    [[RFAchievements shared] gameLoadedAtPath:path console:RFConsoleForPath(path) patched:NO];
     return YES;
 }
 
@@ -456,6 +474,11 @@ static NSArray<NSString *> *rf_referenced_files(NSString *path) {
     if (!rf_disk.set_eject_state(true)) return NO;
     BOOL ok = rf_disk.set_image_index((unsigned)index);
     rf_disk.set_eject_state(false);
+    // RetroAchievements: confere o disco novo (só dá para saber o arquivo quando o jogo é um .m3u)
+    if (ok && [self.gamePath.pathExtension.lowercaseString isEqualToString:@"m3u"]) {
+        NSArray *discs = rf_referenced_files(self.gamePath);
+        if (index < discs.count) [[RFAchievements shared] changeMediaToPath:discs[index]];
+    }
     return ok;
 }
 
@@ -468,6 +491,7 @@ static NSArray<NSString *> *rf_referenced_files(NSString *path) {
     rf_skip_video = skip;
     retro_run();
     rf_skip_video = false;
+    if (!rf_mute_audio) [[RFAchievements shared] doFrame];   // quadros previstos do run-ahead não contam
 }
 
 static void *rf_ahead_state = NULL;
@@ -500,7 +524,9 @@ static size_t rf_ahead_size = 0;
 }
 
 - (void)reset {
-    if (self.loaded) retro_reset();
+    if (!self.loaded) return;
+    retro_reset();
+    [[RFAchievements shared] reset];
 }
 
 - (void)saveSRAM {
@@ -524,6 +550,7 @@ static size_t rf_ahead_size = 0;
         dispatch_source_cancel(self.cardTimer);
         self.cardTimer = nil;
     }
+    [[RFAchievements shared] gameUnloaded];
     retro_unload_game();
     self.loaded = NO;
     rf_frame_data = NULL;
@@ -535,6 +562,11 @@ static size_t rf_ahead_size = 0;
     if (!size) return NO;
     NSMutableData *data = [NSMutableData dataWithLength:size];
     if (!retro_serialize(data.mutableBytes, size)) return NO;
+    // Estado das conquistas junto (para não disparar ou perder conquistas ao carregar)
+    NSString *raPath = [[self statePath:slot] stringByAppendingString:@".ra"];
+    NSData *progress = [[RFAchievements shared] progress];
+    if (progress) [progress writeToFile:raPath atomically:YES];
+    else [[NSFileManager defaultManager] removeItemAtPath:raPath error:nil];
     return [data writeToFile:[self statePath:slot] atomically:YES];
 }
 
@@ -542,7 +574,9 @@ static size_t rf_ahead_size = 0;
     if (!self.loaded) return NO;
     NSData *data = [NSData dataWithContentsOfFile:[self statePath:slot]];
     if (!data) return NO;
-    return retro_unserialize(data.bytes, data.length);
+    if (!retro_unserialize(data.bytes, data.length)) return NO;
+    [[RFAchievements shared] restoreProgress:[NSData dataWithContentsOfFile:[[self statePath:slot] stringByAppendingString:@".ra"]]];
+    return YES;
 }
 
 - (NSDate *)dateForStateSlot:(int)slot {
