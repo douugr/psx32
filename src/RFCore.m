@@ -211,6 +211,35 @@ uint32_t RFConsoleForPath(NSString *path) {
     return RC_CONSOLE_PLAYSTATION;
 }
 
+// Memory cards: o do jogo (pela impressão digital do disco) e o compartilhado, com caminho fixo
+NSArray *RFCloudSaveFiles(NSString *romPath) {
+    NSString *game = romPath.lastPathComponent.stringByDeletingPathExtension;
+    return @[ @{ @"local": [RFCore cardPathForGame:game shared:NO], @"folder": @"psx" },
+              @{ @"local": [RFCore cardPathForGame:game shared:YES], @"shared": @"psx/shared-memory-card.srm" } ];
+}
+
+// Discos da biblioteca (os mesmos que aparecem na lista de jogos)
+NSArray *RFCloudLibraryGames(void) {
+    NSString *dir = RFDir(@"games");
+    NSArray *all = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
+    NSMutableSet *hidden = [NSMutableSet set];
+    for (NSString *f in all) {
+        NSString *ext = f.pathExtension.lowercaseString;
+        if ([ext isEqualToString:@"m3u"] || [ext isEqualToString:@"cue"] || [ext isEqualToString:@"ccd"]) {
+            NSArray *files = [RFCore filesForGame:[dir stringByAppendingPathComponent:f]];
+            for (NSUInteger i = 1; i < files.count; i++) [hidden addObject:[files[i] lastPathComponent].lowercaseString];
+        }
+    }
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *f in all) {
+        NSString *ext = f.pathExtension.lowercaseString;
+        if ([f hasPrefix:@"."] || ![@[@"m3u", @"cue", @"chd", @"pbp", @"iso", @"ccd"] containsObject:ext]) continue;
+        if ([hidden containsObject:f.lowercaseString]) continue;
+        [out addObject:[dir stringByAppendingPathComponent:f]];
+    }
+    return out;
+}
+
 NSArray *RFAchievementsConsoles(void) {
     return @[ @{ @"id": @(RC_CONSOLE_PLAYSTATION), @"name": @"PlayStation" } ];
 }
@@ -260,7 +289,7 @@ static dispatch_queue_t rf_card_queue(void) {
 }
 
 static void rf_write_card(NSData *data, NSString *path) {
-    dispatch_async(rf_card_queue(), ^{ [data writeToFile:path atomically:YES]; });
+    dispatch_async(rf_card_queue(), ^{ if ([data writeToFile:path atomically:YES]) [[RFCloud shared] localSaveWritten:path]; });
 }
 
 - (NSData *)liveCard {
@@ -540,18 +569,22 @@ static size_t rf_ahead_size = 0;
     NSData *data = [NSData dataWithBytes:mem length:size];
     self.cardSnapshot = [data mutableCopy];
     self.cardDirty = NO;
-    dispatch_sync(rf_card_queue(), ^{ [data writeToFile:path atomically:YES]; });
+    dispatch_sync(rf_card_queue(), ^{ if ([data writeToFile:path atomically:YES]) [[RFCloud shared] localSaveWritten:path]; });
 }
 
 - (void)unload {
     if (!self.loaded) return;
+    RFQuitStep("sram");
     [self saveSRAM];
     if (self.cardTimer) {
         dispatch_source_cancel(self.cardTimer);
         self.cardTimer = nil;
     }
+    RFQuitStep("achievements unload");
     [[RFAchievements shared] gameUnloaded];
+    RFQuitStep("core unload");
     retro_unload_game();
+    RFQuitStep("core unloaded");
     self.loaded = NO;
     rf_frame_data = NULL;
 }

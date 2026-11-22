@@ -1,4 +1,7 @@
 #import "RF.h"
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 
@@ -157,7 +160,11 @@ typedef struct {
     [self.link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     rf_watch_start([RFCore shared].gameName);
     rf_watch_arm(YES);
-    if ([[RFCore shared] hasStateSlot:0]) [self offerResume];
+    if ([RFCloud shared].justDownloaded) {
+        // Chegou um save mais novo da nuvem: o salvamento automático daqui voltaria ao ponto antigo
+        [RFCloud shared].justDownloaded = NO;
+        [self showToast:@"Save from the cloud loaded"];
+    } else if ([[RFCore shared] hasStateSlot:0]) [self offerResume];
 }
 
 // Há um salvamento automático da última sessão: pergunta se quer continuar dele
@@ -559,15 +566,21 @@ typedef struct {
 }
 
 - (void)quit {
+    RFQuitWatch(YES);
     rf_watch_arm(NO);
     [self.link invalidate];
     self.link = nil;
     [RFBluetooth shared].menuPressed = nil;
+    RFQuitStep("audio stop");
     [[RFAudio shared] stop];
+    RFQuitStep("save state");
     [[RFCore shared] saveStateSlot:0];   // salvamento automático ao sair
+    RFQuitStep("unload");
     [[RFCore shared] unload];
     rf_touch_mask = 0;
-    [self dismissViewControllerAnimated:YES completion:nil];
+    RFQuitStep("dismiss");
+    [self dismissViewControllerAnimated:YES completion:^{ RFQuitStep("done"); RFQuitWatch(NO); }];
+
 }
 
 @end
@@ -1268,11 +1281,43 @@ static CGRect rf_label_rect(CGRect b) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     NSString *path = [RFDir(@"games") stringByAppendingPathComponent:self.roms[indexPath.row]];
-    RFGameViewController *game = [[RFGameViewController alloc] initWithPath:path];
-    [self presentViewController:game animated:YES completion:nil];
+    // Saves na nuvem: baixa o mais novo antes de o jogo ler o save do disco
+    tableView.userInteractionEnabled = NO;
+    [[RFCloud shared] syncBeforePlaying:path from:self.navigationController ?: self completion:^{
+        tableView.userInteractionEnabled = YES;
+        RFGameViewController *game = [[RFGameViewController alloc] initWithPath:path];
+        [self presentViewController:game animated:YES completion:nil];
+    }];
 }
 
 @end
+
+#pragma mark - Proteção contra travamento do iPad em caso de falha
+
+// Quando o PSX32 falha, o gerador de relatórios do iOS 8 (ReportCrash) pode travar ao examinar a memória
+// do recompilador (JIT) e congelar o iPad inteiro. Por isso as falhas são registradas no log e o app
+// fecha na hora, sem passar pelo ReportCrash.
+static int rf_crash_fd = -1;
+
+static void rf_crash_signal(int sig) {
+    char msg[96];
+    int n = snprintf(msg, sizeof(msg), "CRASH: signal %d, closing PSX32\n", sig);
+    if (rf_crash_fd >= 0 && n > 0) { write(rf_crash_fd, msg, (size_t)n); fsync(rf_crash_fd); }
+    _exit(1);
+}
+
+static void rf_crash_exception(NSException *e) {
+    RFAppendLog(@"core.txt", [NSString stringWithFormat:@"CRASH: %@: %@\n%@", e.name, e.reason,
+                              [[e.callStackSymbols subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)12, e.callStackSymbols.count))] componentsJoinedByString:@"\n"]]);
+    _exit(1);
+}
+
+static void rf_install_crash_guard(void) {
+    rf_crash_fd = open([RFDir(@"") stringByAppendingPathComponent:@"core.txt"].fileSystemRepresentation, O_WRONLY | O_APPEND | O_CREAT, 0644);
+    NSSetUncaughtExceptionHandler(rf_crash_exception);
+    int sigs[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP };
+    for (unsigned i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) signal(sigs[i], rf_crash_signal);
+}
 
 #pragma mark - App
 
@@ -1289,6 +1334,8 @@ static CGRect rf_label_rect(CGRect b) {
            @"make": ^UIViewController *{ return [[RFLibraryViewController alloc] initWithStyle:UITableViewStylePlain]; } },
         @{ @"title": @"Achievements", @"caption": @"RetroAchievements: your games and unlocks", @"keep": @YES,
            @"make": ^UIViewController *{ return [[RFAchievementsHomeViewController alloc] init]; } },
+        @{ @"title": @"Cloud saves", @"caption": @"Your saves in a private GitHub repository", @"keep": @YES,
+           @"make": ^UIViewController *{ return [[RFCloudViewController alloc] init]; } },
         @{ @"title": @"Upload games", @"caption": @"Send discs and BIOS from a computer or phone", @"keep": @NO,
            @"make": ^UIViewController *{ return [[RFUploadViewController alloc] init]; } },
         @{ @"title": @"Controller", @"caption": @"Bluetooth controller and buttons", @"keep": @YES,
@@ -1298,6 +1345,7 @@ static CGRect rf_label_rect(CGRect b) {
     self.window.rootViewController = [[RFSideMenuController alloc] initWithItems:items];
     [self.window makeKeyAndVisible];
     application.idleTimerDisabled = YES;
+    rf_install_crash_guard();
     [[RFBluetooth shared] start];
     [[RFAchievements shared] start];
     return YES;
