@@ -97,7 +97,7 @@ echo "==> Building the app (armv7, iOS 8.0)"
     src/*.m "$CORE_LIB" "$RC_LIB" -o "$OUT/$APP" \
     -L vendor -lBTstackLink -Wl,-segprot,__JIT,rwx,rwx \
     -framework Foundation -framework UIKit -framework CoreGraphics -framework QuartzCore \
-    -framework GLKit -framework OpenGLES -framework AudioToolbox -framework AVFoundation -framework CoreImage -framework Security
+    -framework GLKit -framework OpenGLES -framework AudioToolbox -framework AVFoundation -framework CoreImage -framework Security -lz
 
 cp Info.plist "$OUT/"
 cp resources/Icon-*.png resources/*.html "$OUT/"
